@@ -1,0 +1,133 @@
+version: '3.8'
+
+# Use environment variables from a file
+env_file:
+  - .env
+
+services:
+  # --- Database Layer ---
+  db:
+    image: mysql:8.0
+    container_name: project_mysql
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql # Optional init script
+    networks:
+      - backend_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    container_name: project_redis
+    restart: unless-stopped
+    networks:
+      - backend_network
+    volumes:
+      - redis_data:/data
+
+  # --- Application Layer ---
+  backend:
+    build: ./backend
+    container_name: project_django
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/mediafiles
+    ports:
+      - "8000:8000" # Expose for development; remove in production (let Nginx handle it)
+    networks:
+      - backend_network
+      - frontend_network
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    command: /entrypoint.sh  # This runs Gunicorn
+
+  celery_worker:
+    build: ./backend  # Reuse the backend Dockerfile
+    container_name: project_celery_worker
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/mediafiles
+    networks:
+      - backend_network
+    depends_on:
+      - backend
+      - cache
+    command: /celery-entrypoint.sh worker --loglevel=info
+
+  celery_beat:
+    build: ./backend
+    container_name: project_celery_beat
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./backend:/app
+    networks:
+      - backend_network
+    depends_on:
+      - backend
+      - cache
+    command: /celery-entrypoint.sh beat --loglevel=info
+
+  # --- Web Server & Frontend Layer ---
+  frontend:
+    build: ./frontend
+    container_name: project_react
+    restart: unless-stopped
+    volumes:
+      - './frontend:/app'
+      - '/app/node_modules'
+    networks:
+      - frontend_network
+    # 'npm start' for dev, 'serve -s build' for production
+    command: /entrypoint.sh
+
+  nginx:
+    build: ./nginx
+    container_name: project_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443" # If using SSL
+    volumes:
+      - static_volume:/usr/share/nginx/html/static:ro
+      - media_volume:/usr/share/nginx/html/media:ro
+    networks:
+      - backend_network
+      - frontend_network
+    depends_on:
+      - backend
+      - frontend
+
+# Define networks to isolate communication
+networks:
+  backend_network:
+    driver: bridge
+  frontend_network:
+    driver: bridge
+
+# Define volumes to persist data
+volumes:
+  mysql_data:
+  redis_data:
+  static_volume:
+  media_volume:

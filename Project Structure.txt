@@ -1,0 +1,24 @@
+your-project/
+├── docker-compose.yml          # The master orchestrator file
+├── .env                        # Environment variables (DB passwords, keys)
+├── entrypoint.sh               # Generic entrypoint for Python containers
+│
+├── backend/                    # Django Project
+│   ├── Dockerfile
+│   ├── entrypoint.sh           # Django-specific entrypoint
+│   ├── requirements.txt
+│   └── ... (your Django code)
+│
+├── frontend/                   # React Project
+│   ├── Dockerfile
+│   ├── entrypoint.sh           # React-specific entrypoint
+│   └── ... (your React code)
+│
+├── celery/                     # Celery Worker & Beat
+│   ├── Dockerfile              # (Can often use backend's Dockerfile)
+│   └── entrypoint.sh           # Celery-specific entrypoint
+│
+└── nginx/                      # Web Server (Nginx)
+    ├── Dockerfile
+    ├── nginx.conf
+    └── ... (other configs)
